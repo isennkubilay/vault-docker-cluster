@@ -1,0 +1,237 @@
+version: '3'
+
+vars:
+  VAULT_ADDR: 'http://127.0.0.1:8200'
+  KEY_SHARES: 5
+  KEY_THRESHOLD: 3
+
+tasks:
+  check:
+    desc: Check if all prerequisites are installed
+    cmds:
+      - ./check-prerequisites.sh
+
+  up:
+    desc: Start the Vault cluster
+    cmds:
+      - docker-compose up -d
+
+  down:
+    desc: Stop the Vault cluster
+    cmds:
+      - docker-compose down
+
+  clean:
+    desc: Stop and remove all containers, networks, and volumes
+    cmds:
+      - docker-compose down -v
+
+  reset:
+    desc: Complete reset - clean everything including data directories
+    cmds:
+      - task: down
+      - docker-compose down -v
+      - echo "🗑️  Removing Raft data..."
+      - rm -rf vault-1/data/raft/*
+      - rm -rf vault-1/data/vault.db
+      - rm -rf vault-2/data/raft/*
+      - rm -rf vault-2/data/vault.db
+      - rm -rf vault-3/data/raft/*
+      - rm -rf vault-3/data/vault.db
+      - echo "🗑️  Removing generated unseal scripts..."
+      - echo "✅ Reset complete! You can now run 'task bootstrap' for a fresh start."
+    prompt: This will delete ALL Vault data. Are you sure?
+
+  init:
+    desc: Initialize vault-1 and auto-generate unseal.sh scripts
+    cmds:
+      - ./init-and-generate-unseal.sh
+    preconditions:
+      - sh: docker-compose ps vault-1 | grep -q "Up"
+        msg: "vault-1 is not running. Run 'task up' first."
+      - sh: command -v jq >/dev/null 2>&1
+        msg: "jq is required but not installed. Install with: brew install jq"
+
+  unseal-vault-1:
+    desc: Unseal vault-1
+    cmds:
+      - docker-compose exec vault-1 sh /vault/config/unseal.sh
+    preconditions:
+      - sh: docker-compose ps vault-1 | grep -q "Up"
+        msg: "vault-1 is not running. Run 'task up' first."
+
+  unseal-vault-2:
+    desc: Unseal vault-2
+    cmds:
+      - docker-compose exec vault-2 sh /vault/config/unseal.sh
+    preconditions:
+      - sh: docker-compose ps vault-2 | grep -q "Up"
+        msg: "vault-2 is not running. Run 'task up' first."
+
+  unseal-vault-3:
+    desc: Unseal vault-3
+    cmds:
+      - docker-compose exec vault-3 sh /vault/config/unseal.sh
+    preconditions:
+      - sh: docker-compose ps vault-3 | grep -q "Up"
+        msg: "vault-3 is not running. Run 'task up' first."
+
+  join-vault-2:
+    desc: Join vault-2 to the Raft cluster
+    cmds:
+      - docker-compose exec vault-2 sh -c "export VAULT_ADDR='{{.VAULT_ADDR}}' && vault operator raft join http://vault-1:8200"
+    preconditions:
+      - sh: docker-compose ps vault-2 | grep -q "Up"
+        msg: "vault-2 is not running. Run 'task up' first."
+
+  join-vault-3:
+    desc: Join vault-3 to the Raft cluster
+    cmds:
+      - docker-compose exec vault-3 sh -c "export VAULT_ADDR='{{.VAULT_ADDR}}' && vault operator raft join http://vault-1:8200"
+    preconditions:
+      - sh: docker-compose ps vault-3 | grep -q "Up"
+        msg: "vault-3 is not running. Run 'task up' first."
+
+  unseal-all:
+    desc: Unseal all vault nodes
+    cmds:
+      - task: unseal-vault-1
+      - task: unseal-vault-2
+      - task: unseal-vault-3
+
+  setup-cluster:
+    desc: Complete cluster setup - unseal vault-1, join and unseal vault-2 and vault-3
+    cmds:
+      - task: unseal-vault-1
+      - task: join-vault-2
+      - task: unseal-vault-2
+      - task: join-vault-3
+      - task: unseal-vault-3
+
+  bootstrap:
+    desc: Full bootstrap - start cluster, initialize, and setup
+    cmds:
+      - task: up
+      - echo "⏳ Waiting for containers to be ready (15 seconds)..."
+      - sleep 15
+      - task: init
+      - echo ""
+      - echo "📋 Credentials saved! Review them above."
+      - echo "Press Enter to continue with cluster setup..."
+      - read _
+      - task: setup-cluster
+      - echo ""
+      - echo "✅ Bootstrap complete!"
+
+  status:
+    desc: Check status of all vault nodes
+    cmds:
+      - echo "=== Vault-1 Status ==="
+      - docker-compose exec vault-1 sh -c "export VAULT_ADDR='{{.VAULT_ADDR}}' && vault status" || true
+      - echo ""
+      - echo "=== Vault-2 Status ==="
+      - docker-compose exec vault-2 sh -c "export VAULT_ADDR='{{.VAULT_ADDR}}' && vault status" || true
+      - echo ""
+      - echo "=== Vault-3 Status ==="
+      - docker-compose exec vault-3 sh -c "export VAULT_ADDR='{{.VAULT_ADDR}}' && vault status" || true
+
+  cluster-check:
+    desc: Comprehensive cluster health check
+    cmds:
+      - echo "========================================================================"
+      - echo "VAULT CLUSTER HEALTH CHECK"
+      - echo "========================================================================"
+      - echo ""
+      - echo "[1] Container Status:"
+      - docker-compose ps
+      - echo ""
+      - echo "[2] Vault-1 Status:"
+      - docker-compose exec vault-1 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status" || true
+      - echo ""
+      - echo "[3] Vault-2 Status:"
+      - docker-compose exec vault-2 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status" || true
+      - echo ""
+      - echo "[4] Vault-3 Status:"
+      - docker-compose exec vault-3 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status" || true
+      - echo ""
+      - echo "[5] Raft Cluster Members:"
+      - docker-compose exec vault-1 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault operator raft list-peers" || true
+      - echo ""
+      - echo "[6] Load Balancer Health Check:"
+      - curl -s http://127.0.0.1:8200/v1/sys/health | jq '.' || true
+      - echo ""
+      - echo "[7] Cluster Summary:"
+      - docker-compose exec vault-1 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status -format=json" | jq '.' || true
+      - echo ""
+      - echo "========================================================================"
+      - echo "CLUSTER CHECK COMPLETE"
+      - echo "========================================================================"
+
+  quick-check:
+    desc: Quick cluster status - sealed/unsealed status only
+    cmds:
+      - echo ""
+      - echo "QUICK CLUSTER STATUS:"
+      - echo "---"
+      - docker-compose exec vault-1 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status" | grep -E "Sealed|HA Mode" || true
+      - echo ""
+      - docker-compose exec vault-2 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status" | grep -E "Sealed|HA Mode" || true
+      - echo ""
+      - docker-compose exec vault-3 sh -c "export VAULT_ADDR='http://127.0.0.1:8200' && vault status" | grep -E "Sealed|HA Mode" || true
+
+  monitor-logs:
+    desc: Watch auto-unseal monitor logs in real-time
+    cmds:
+      - docker-compose logs -f vault-unsealer
+
+  monitor-status:
+    desc: Check auto-unseal monitor status
+    cmds:
+      - docker-compose ps vault-unsealer
+      - echo ""
+      - echo "Recent monitor activity:"
+      - docker-compose logs vault-unsealer | tail -15
+
+  logs:
+    desc: Show logs from all vault containers
+    cmds:
+      - docker-compose logs -f
+
+  logs-vault-1:
+    desc: Show logs from vault-1
+    cmds:
+      - docker-compose logs -f vault-1
+
+  logs-vault-2:
+    desc: Show logs from vault-2
+    cmds:
+      - docker-compose logs -f vault-2
+
+  logs-vault-3:
+    desc: Show logs from vault-3
+    cmds:
+      - docker-compose logs -f vault-3
+
+  shell-vault-1:
+    desc: Open shell in vault-1 container
+    cmds:
+      - docker-compose exec vault-1 sh
+
+  shell-vault-2:
+    desc: Open shell in vault-2 container
+    cmds:
+      - docker-compose exec vault-2 sh
+
+  shell-vault-3:
+    desc: Open shell in vault-3 container
+    cmds:
+      - docker-compose exec vault-3 sh
+
+  restart:
+    desc: Restart the Vault cluster
+    cmds:
+      - task: down
+      - task: up
+      - echo "Waiting for containers to start..."
+      - sleep 5
+      - task: unseal-all

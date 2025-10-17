@@ -1,0 +1,141 @@
+version: '3.8'
+
+networks:
+  vault_net:
+    driver: bridge
+
+services:
+  vault-1:
+    image: vaultdockercluster:1.20
+    restart: unless-stopped
+    volumes:
+      - ./vault-1/config:/vault/config
+      - ./vault-1/data:/vault/data
+    cap_add:
+      - IPC_LOCK
+    entrypoint:
+      - vault
+      - server
+      - -config=/vault/config/vault.hcl
+    ulimits:
+      memlock: -1
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - vault_net
+    healthcheck:
+      test: ["CMD", "vault", "status", "-tls-skip-verify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  vault-2:
+    image: vaultdockercluster:1.20
+    restart: unless-stopped
+    volumes:
+      - ./vault-2/config:/vault/config
+      - ./vault-2/data:/vault/data
+    cap_add:
+      - IPC_LOCK
+    entrypoint:
+      - vault
+      - server
+      - -config=/vault/config/vault.hcl
+    ulimits:
+      memlock: -1
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - vault_net
+    healthcheck:
+      test: ["CMD", "vault", "status", "-tls-skip-verify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  vault-3:
+    image: vaultdockercluster:1.20
+    restart: unless-stopped
+    volumes:
+      - ./vault-3/config:/vault/config
+      - ./vault-3/data:/vault/data
+    cap_add:
+      - IPC_LOCK
+    entrypoint:
+      - vault
+      - server
+      - -config=/vault/config/vault.hcl
+    ulimits:
+      memlock: -1
+      nofile:
+        soft: 65535
+        hard: 65535
+    networks:
+      - vault_net
+    healthcheck:
+      test: ["CMD", "vault", "status", "-tls-skip-verify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
+  vault-unsealer:
+    image: vaultdockercluster:1.20
+    restart: unless-stopped
+    volumes:
+      - ./auto-unseal-monitor.sh:/usr/local/bin/auto-unseal-monitor.sh:ro
+      - ./vault-1/config:/vault/config:ro
+      - ./vault-2/config:/vault/config-2:ro
+      - ./vault-3/config:/vault/config-3:ro
+    entrypoint: sh /usr/local/bin/auto-unseal-monitor.sh
+    depends_on:
+      - vault-1
+      - vault-2
+      - vault-3
+    networks:
+      - vault_net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+
+  load-balancer:
+    image: nginx:1.29.0
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - "8200:8200"
+    depends_on:
+      - vault-1
+      - vault-2
+      - vault-3
+    networks:
+      - vault_net
+    healthcheck:
+      test: ["CMD", "service", "nginx", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M

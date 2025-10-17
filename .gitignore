@@ -1,0 +1,11 @@
+vault-credentials-*.md
+vault-init-keys.json
+*/config/unseal.sh
+
+
+*/config/vault-backup.snap
+
+*/data/raft/*
+*/data/vault.db
+
+.DS_Store
