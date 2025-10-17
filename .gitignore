@@ -9,3 +9,5 @@ vault-init-keys.json
 */data/vault.db
 
 .DS_Store
+
+MEDIUM_ARTICLE.md
