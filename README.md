@@ -3,6 +3,9 @@
 A reproducible HashiCorp Vault cluster lab that runs entirely on Docker. The stack spins up three Vault nodes using integrated storage (Raft), an auxiliary container that watches and auto-unseals sealed nodes, and an NGINX reverse proxy that presents a single entry point on `http://localhost:8200`.
 
 ## Architecture
+
+![Vault Docker Cluster Architecture](images/architecture.png)
+
 - **vault-1 / vault-2 / vault-3** – Vault 1.20 servers backed by integrated Raft storage. Each node mounts a local config directory (`vault-*/config`) and data directory (`vault-*/data`).
 - **vault-unsealer** – Lightweight helper container that tails each node and replays the generated `unseal.sh` script when a node becomes sealed.
 - **load-balancer** – NGINX 1.29 front-end with IP-hash upstream balancing and health checks that proxies every request to one of the Vault nodes.
