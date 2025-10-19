@@ -92,13 +92,6 @@ tasks:
       - sh: docker-compose ps vault-3 | grep -q "Up"
         msg: "vault-3 is not running. Run 'task up' first."
 
-  unseal-all:
-    desc: Unseal all vault nodes
-    cmds:
-      - task: unseal-vault-1
-      - task: unseal-vault-2
-      - task: unseal-vault-3
-
   setup-cluster:
     desc: Complete cluster setup - unseal vault-1, join and unseal vault-2 and vault-3
     cmds:
@@ -234,4 +227,3 @@ tasks:
       - task: up
       - echo "Waiting for containers to start..."
       - sleep 5
-      - task: unseal-all
