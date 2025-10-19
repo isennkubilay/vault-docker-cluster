@@ -82,13 +82,10 @@ Because the helper executes the same unseal script stored on disk, protect the `
 - Proxies `/health` to Vault’s `/v1/sys/health` endpoint.
 - Disables compression and caching for safety.
 
-Adjust or extend the configuration to add TLS termination in production scenarios.
-
 ## Data & Persistence
 Each Vault node mounts `vault-*/data`, which retains Raft snapshots and WALs between restarts. Wiping these directories (see `task reset`) forces a clean initialization.
 
 ## Security Notes
-- This setup disables TLS for simplicity. Do **not** expose it beyond a lab network without adding TLS certificates and tightening configuration.
 - Generated credential files (`vault-credentials-*.md`, `vault-init-keys.json`, `vault-*/config/unseal.sh`) contain highly sensitive data. Move them to a secure vault or delete them immediately after testing.
 - The root token printed during initialization has full privileges; rotate it or replace it with scoped tokens for real workloads.
 
